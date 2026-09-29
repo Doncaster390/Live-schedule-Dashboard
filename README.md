@@ -28,7 +28,7 @@ The backend must allow the GitHub Pages origin and the `Authorization` and `Cont
 
 ## Monthly hours report
 
-Select a **Team** (DC or CDC) and **Report month** on the dashboard, then choose **Download monthly hours report**. The CSV summarizes that team and calendar month by work role with scheduled hours, shift count, and coworker count, plus a total row. Name, role, period, date-view, and other dashboard filters do not change this report.
+Select a **Team** (DC or CDC) and **Report month** on the dashboard, then choose **Download monthly hours report**. The Excel workbook includes separate **Monthly hours** and **Weekly hours** sheets. Both summarize scheduled hours, shift count, and coworker count by work role; the weekly sheet includes Sunday-to-Saturday totals for each week in the selected month. Name, role, period, date-view, and other dashboard filters do not change this report.
 
 ## Shared safety badges
 
