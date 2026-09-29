@@ -107,7 +107,10 @@ assert.throws(()=>shared.dashboardShareUrl('https://dashboard.test/index.html','
   assert.doesNotMatch(cardView,/shift-date/);
   assert.doesNotMatch(unattendedDisplay,/shift-date/);
   assert.match(dashboard,/downloadMonthlyHoursReport/);
-  assert.match(dashboard,/monthly-hours-by-work-role-/);
+  assert.match(dashboard,/hours-by-work-role-/);
+  assert.match(dashboard,/Monthly hours/);
+  assert.match(dashboard,/Weekly hours/);
+  assert.match(dashboard,/weeklyHoursRows/);
   assert.match(dashboard,/Scheduled hours/);
 
   const source=new Date(2026,8,8,2,30);
