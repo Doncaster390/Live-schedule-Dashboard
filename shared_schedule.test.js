@@ -111,6 +111,8 @@ assert.throws(()=>shared.dashboardShareUrl('https://dashboard.test/index.html','
   assert.match(dashboard,/Monthly hours/);
   assert.match(dashboard,/Weekly hours/);
   assert.match(dashboard,/weeklyHoursRows/);
+  assert.match(dashboard,/blockIndex<blocks\.length-1\?\[''\]:\[\]/);
+  assert.match(dashboard,/weeklyRows=weeklyHoursRows\(sourceRows,group\)/);
   assert.match(dashboard,/Scheduled hours/);
 
   const source=new Date(2026,8,8,2,30);
