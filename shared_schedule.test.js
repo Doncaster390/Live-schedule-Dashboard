@@ -102,6 +102,12 @@ assert.throws(()=>shared.dashboardShareUrl('https://dashboard.test/index.html','
   assert.match(dashboard,/fetchBackendSafetyBadges\(base\)/);
   assert.match(dashboard,/body:\{badges:SharedSchedule\.normaliseSafetyBadges\(badges\)\}/);
   assert.match(dashboard,/shared clearing failed/);
+  assert.match(dashboard,/id="sharedBackendLoginError" class="data-note hint" role="alert" aria-live="assertive" hidden/);
+  assert.match(dashboard,/function showSharedBackendLoginError\(message\)\{const error=byId\('sharedBackendLoginError'\)/);
+  assert.match(dashboard,/async function loginSharedBackend\(\)\{showSharedBackendLoginError\(''\);try\{/);
+  assert.match(dashboard,/localStorage\.setItem\(SHARED_BACKEND_TOKEN_KEY,token\);byId\('sharedBackendPassword'\)\.value='';showSharedBackendLoginError\(''\);/);
+  assert.match(dashboard,/catch\(error\)\{showSharedBackendLoginError\('Could not sign in to the shared backend: '\+error\.message\);\}\}/);
+  assert.doesNotMatch(dashboard,/byId\('sharedBackendPassword'\)\.value='';showError\(''\);updateAdminVisibility\(\);byId\('status'\)\.textContent='Signed in/);
   assert.match(dashboard,/<div class="shift-date"><span>Shift date<\/span><time datetime="/);
   assert.match(dashboard,/shiftDateLabel\(row\.date\)/);
   assert.doesNotMatch(cardView,/shift-date/);
