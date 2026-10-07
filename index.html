@@ -69,4 +69,4 @@ function openCardView(){const rows=filtered().slice().sort((a,b)=>String(a.start
 function openTeamCardView(group){const query=new URLSearchParams({team:group}),search=el('search').value.trim();if(search)query.set('search',search);[...el('role').selectedOptions].forEach(option=>query.append('role',option.value));const popup=window.open('card_view.html?'+query.toString(),'_blank','popup');if(!popup)setError('The card view could not be opened. Allow pop-ups for this dashboard and try again.');}
 el('dcCardView').addEventListener('click',()=>openTeamCardView('DC'));el('cdcCardView').addEventListener('click',()=>openTeamCardView('CDC'));
 el('cards').addEventListener('click',e=>{const btn=e.target.closest('[data-remove]');if(btn)openAbsence(btn.dataset.remove,btn);});
-</script><script src="shared_schedule.js"></script><script src="dashboard.js?v=20260929-weekly-hours-layout"></script></body></html>
+</script><script src="shared_schedule.js"></script><script src="dashboard.js?v=20261007-signin-error-signout"></script></body></html>
