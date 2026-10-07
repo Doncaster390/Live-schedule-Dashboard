@@ -112,8 +112,13 @@ assert.throws(()=>shared.dashboardShareUrl('https://dashboard.test/index.html','
   assert.match(dashboard,/function signOutSharedBackend\(\)\{localStorage\.removeItem\(SHARED_BACKEND_TOKEN_KEY\);/);
   assert.doesNotMatch(dashboard,/function signOutSharedBackend\(\)\{[^}]*removeItem\(SHARED_BACKEND_API_BASE_KEY\)/);
   assert.match(dashboard,/byId\('signOutSharedBackend'\)\.addEventListener\('click',signOutSharedBackend\)/);
+  assert.match(dashboard,/id="toggleSharedBackendPassword" class="clear" type="button" aria-pressed="false" aria-label="Show admin password"/);
+  assert.match(dashboard,/function toggleSharedBackendPasswordVisibility\(\)\{const input=byId\('sharedBackendPassword'\),button=byId\('toggleSharedBackendPassword'\);if\(!input\|\|!button\)return;/);
+  assert.doesNotMatch(dashboard,/function toggleSharedBackendPasswordVisibility\(\)\{[^}]*\.value/);
+  assert.match(dashboard,/byId\('toggleSharedBackendPassword'\)\.addEventListener\('click',toggleSharedBackendPasswordVisibility\)/);
   const indexHtml=fs.readFileSync('index.html','utf8');
   assert.doesNotMatch(indexHtml,/dashboard\.js\?v=20260929-weekly-hours-layout/);
+  assert.doesNotMatch(indexHtml,/dashboard\.js\?v=20261007-signin-error-signout/);
   assert.match(indexHtml,/dashboard\.js\?v=\d{8}-[a-z0-9-]+"/);
   assert.match(dashboard,/<div class="shift-date"><span>Shift date<\/span><time datetime="/);
   assert.match(dashboard,/shiftDateLabel\(row\.date\)/);
