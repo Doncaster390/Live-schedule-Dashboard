@@ -12,14 +12,14 @@ On first load, the dashboard shows a **Sign in** screen with three tabs:
 
 Enter the backend's HTTPS API base URL in the field above the forms (or open the dashboard with `?api=<base-url>` to have it filled in automatically). The dashboard stores only an account token and the API base in that browser's `localStorage`; it never stores a password. Every request to a protected endpoint sends `Authorization: Bearer <token>`. If any request comes back `401`/`403`, the dashboard immediately clears the stored token and returns to the sign-in screen — there is no fallback to cached or static schedule data.
 
-## Admin: access and displays
+## Admin: user access
 
-An admin sees an **Admin: access & displays** button in the account bar. It opens a panel with two sections:
+An admin sees an **Admin: user access** button in the account bar. It opens a panel listing every registered account (`GET /api/admin/users`) with its email, status, and role. Changing the status (`pending`/`approved`/`rejected`/`revoked`) and/or role (`viewer`/`admin`) and clicking **Save** calls `PATCH /api/admin/users/:id` — only with the field(s) that actually changed from what was last loaded, so an unmodified selection never resends a stale value. The panel shows an explicit "Saved." confirmation after a successful update, "No changes to save for this user." if nothing was changed, or an inline error with the backend's message/status if the request fails.
 
-- **User access requests** — lists every registered account (`GET /api/admin/users`) with its email, status, and role. Changing the status (`pending`/`approved`/`rejected`/`revoked`) and/or role (`viewer`/`admin`) and clicking **Save** calls `PATCH /api/admin/users/:id` with the combined `{status, role}` body.
-  - **Admin** accounts can upload schedule CSVs and safety-badge workbooks, publish them to the backend, and do everything a viewer can.
-  - **Viewer** accounts can do everything except upload/publish schedule or safety-badge data — they can still view, filter, download reports, and manage the People directory below.
-- **Display credentials (kiosk/TV)** — an optional, still-available backend capability for issuing separate, revocable scoped credentials (`POST /api/admin/display-credentials {name}`, `GET /api/admin/display-credentials`, `DELETE /api/admin/display-credentials/:id`). `card_view.html` and `index_display.html` no longer require one: since `GET /api/schedule`/`GET /api/safety-badges` are public reads, kiosk pages just need the backend API base URL (see below), not a setup code.
+- **Admin** accounts can upload schedule CSVs and safety-badge workbooks, publish them to the backend, and do everything a viewer can.
+- **Viewer** accounts can do everything except upload/publish schedule or safety-badge data — they can still view, filter, download reports, and manage the People directory below.
+
+The backend still exposes a separate, revocable display-credential capability (`POST`/`GET`/`DELETE /api/admin/display-credentials`), but since `GET /api/schedule`/`GET /api/safety-badges` are public reads, `card_view.html`/`index_display.html` no longer need a setup code, so this admin screen no longer surfaces a UI for it.
 
 ## People directory
 

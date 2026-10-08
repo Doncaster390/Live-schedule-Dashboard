@@ -6,6 +6,7 @@
   function showAuthGateError(message){const error=byId('authGateError');if(!error)return;error.textContent=message||'';error.hidden=!message;}
   function showPending(message){const pending=byId('authGatePending');if(!pending)return;pending.hidden=!message;if(message)pending.textContent=message;}
   function showPanelError(id,message){const error=byId(id);if(!error)return;error.textContent=message||'';error.hidden=!message;}
+  function showPanelSavedNote(message){const note=byId('usersSavedNote');if(!note)return;note.textContent=message||'';note.hidden=!message;}
 
   function setActiveTab(name){
     const tabs={signIn:'tabSignIn',requestAccess:'tabRequestAccess',adminSignIn:'tabAdminSignIn'};
@@ -277,78 +278,23 @@
     const statusSelect=byId('usersList').querySelector('[data-user-status="'+id+'"]');
     const roleSelect=byId('usersList').querySelector('[data-user-role="'+id+'"]');
     showPanelError('usersError','');
+    showPanelSavedNote('');
     const original=loadedUsersById.get(id);
     const patch=buildUserPatch(original,statusSelect.value,roleSelect.value);
-    if(!Object.keys(patch).length)return;
+    if(!Object.keys(patch).length){
+      showPanelSavedNote('No changes to save for this user.');
+      return;
+    }
+    saveButton.disabled=true;
     try{
       await Auth.updateUser(id,patch);
       await refreshUsersList();
+      showPanelSavedNote('Saved.');
     }catch(error){
       if(handleAuthFailureFromPanel(error))return;
       showPanelError('usersError','Could not update user: '+error.message);
-    }
-  }
-
-  // ---- Admin: display credentials ----
-
-  function renderDisplayList(credentials){
-    const list=byId('displayList');
-    if(!list)return;
-    if(!credentials.length){
-      list.innerHTML='<p class="small">No display credentials created yet.</p>';
-      return;
-    }
-    list.innerHTML=credentials.map(credential=>{
-      const id=escapeText(String(credential.id));
-      const state=credential.revoked_at?'Revoked':credential.activated?'Active':credential.setup_pending?'Setup pending':'Unknown';
-      return '<div class="data-note" style="justify-content:space-between;border-bottom:1px solid #e1e8f3;padding:8px 0">'
-        +'<span>'+escapeText(credential.name)+' - '+state+'</span>'
-        +(credential.revoked_at?'':'<button class="remove-btn" type="button" data-revoke-display="'+id+'">Revoke</button>')
-        +'</div>';
-    }).join('');
-  }
-
-  async function refreshDisplayList(){
-    try{
-      const result=await Auth.listDisplayCredentials();
-      renderDisplayList((result&&result.credentials)||[]);
-    }catch(error){
-      if(handleAuthFailureFromPanel(error))return;
-      showPanelError('displaysError','Could not load display credentials: '+error.message);
-    }
-  }
-
-  async function handleCreateDisplay(event){
-    event.preventDefault();
-    showPanelError('displaysError','');
-    const name=byId('displayName').value.trim();
-    try{
-      const result=await Auth.createDisplayCredential(name);
-      byId('createDisplayForm').reset();
-      const codeNote=byId('displaySetupCode');
-      if(codeNote){
-        codeNote.hidden=false;
-        codeNote.textContent='Setup code for "'+name+'": '+result.setup_code+' (single-use, expires '+new Date(result.setup_expires_at).toLocaleString()+'). Enter this code on the kiosk display now - it will not be shown again.';
-      }
-      await refreshDisplayList();
-    }catch(error){
-      if(handleAuthFailureFromPanel(error))return;
-      showPanelError('displaysError','Could not create a display credential: '+error.message);
-    }
-  }
-
-  async function handleDisplayListClick(event){
-    const revokeButton=event.target.closest('[data-revoke-display]');
-    if(!revokeButton)return;
-    const id=revokeButton.getAttribute('data-revoke-display');
-    if(!confirm('Revoke this display credential? The kiosk will stop showing the schedule.'))return;
-    showPanelError('displaysError','');
-    try{
-      await Auth.revokeDisplayCredential(id);
-      await refreshDisplayList();
-    }catch(error){
-      if(handleAuthFailureFromPanel(error))return;
-      showPanelError('displaysError','Could not revoke the display credential: '+error.message);
+    }finally{
+      saveButton.disabled=false;
     }
   }
 
@@ -366,12 +312,10 @@
     byId('peoplePanel').addEventListener('click',event=>{if(event.target===byId('peoplePanel'))byId('peoplePanel').hidden=true;});
     byId('peopleList').addEventListener('click',handlePeopleListClick);
 
-    byId('openAdminPanel').addEventListener('click',()=>{byId('adminPanel').hidden=false;refreshUsersList();refreshDisplayList();});
+    byId('openAdminPanel').addEventListener('click',()=>{byId('adminPanel').hidden=false;refreshUsersList();});
     byId('closeAdminPanel').addEventListener('click',()=>{byId('adminPanel').hidden=true;});
     byId('adminPanel').addEventListener('click',event=>{if(event.target===byId('adminPanel'))byId('adminPanel').hidden=true;});
     byId('usersList').addEventListener('click',handleUsersListClick);
-    byId('createDisplayForm').addEventListener('submit',handleCreateDisplay);
-    byId('displayList').addEventListener('click',handleDisplayListClick);
   }
 
   if(document.readyState==='loading'){
