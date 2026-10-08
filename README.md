@@ -1,30 +1,50 @@
 # Live Schedule Dashboard
 
-## Shared schedule backend for display devices
+## Account access
 
-The dashboard can publish its normalized schedule to the shared schedule backend so `card_view.html` and `index_display.html` work on other devices without access to the operator's browser.
+The dashboard is a login-gated single-page app backed by a separate schedule API. Nobody can see schedule or safety-badge data, or use any dashboard feature, until they are signed in with an approved account or the dashboard is running as an authenticated unattended display.
 
-1. On the dashboard, use **Shared schedule backend** to save the HTTPS API base URL, then sign in with the backend admin username and password. The dashboard stores the base URL and returned JWT only in that browser's `localStorage`; it never stores the password or includes credentials in generated links.
-2. Upload CSV files as usual. The dashboard keeps its local schedule behavior and also atomically publishes the normalized merged rows to `PUT {baseUrl}/api/admin/schedule` with the saved JWT. A backend error is shown if publishing fails.
-3. Open the DC or CDC card buttons to get a stable display link. It retains the selected team, search, and role filters and contains only `api=<public-base-url>`, for example:
+On first load, the dashboard shows a **Sign in** screen with three tabs:
 
-   `card_view.html?team=DC&api=https%3A%2F%2Fschedule.example.com`
+- **Sign in** — email + password for an approved account.
+- **Request access** — email + a password you choose. This calls `POST /api/auth/register` and returns a pending status; the account cannot sign in until an admin approves it. No password is ever sent anywhere except this one request, and the backend only ever stores a secure hash of it — nobody, including admins, can see a user's password.
+- **Admin sign in** — the existing bootstrap administrator username/PIN (the `ADMIN_USERNAME`/`ADMIN_PIN` configured on the backend, e.g. via Vercel environment variables). This calls `POST /api/admin/login` and always signs in with the `admin` role.
 
-The link has no token and no date, so the same bookmarked link receives later uploads from public `GET {baseUrl}/api/schedule` on its normal one-minute refresh. To use the unattended display, append the same public API base:
+Enter the backend's HTTPS API base URL in the field above the forms (or open the dashboard with `?api=<base-url>` to have it filled in automatically). The dashboard stores only an account token and the API base in that browser's `localStorage`; it never stores a password. Every request to a protected endpoint sends `Authorization: Bearer <token>`. If any request comes back `401`/`403`, the dashboard immediately clears the stored token and returns to the sign-in screen — there is no fallback to cached or static schedule data.
 
-`index_display.html?api=https%3A%2F%2Fschedule.example.com`
+## Admin: access and displays
 
-## Sharing the full dashboard
+An admin sees an **Admin: access & displays** button in the account bar. It opens a panel with two sections:
 
-To let another PC open the complete dashboard without entering an API URL or signing in, save the shared backend API base in **Shared schedule backend**, then select **Copy dashboard link**. The copied URL is based on the current dashboard page and has exactly one query parameter:
+- **User access requests** — lists every registered account (`GET /api/admin/users`) with its email, status, and role. Changing the status (`pending`/`approved`/`rejected`/`revoked`) and/or role (`viewer`/`admin`) and clicking **Save** calls `PATCH /api/admin/users/:id` with the combined `{status, role}` body.
+  - **Admin** accounts can upload schedule CSVs and safety-badge workbooks, publish them to the backend, and do everything a viewer can.
+  - **Viewer** accounts can do everything except upload/publish schedule or safety-badge data — they can still view, filter, download reports, and manage the People directory below.
+- **Display credentials (kiosk/TV)** — manages separate, revocable credentials for unattended TV/kiosk displays (`card_view.html`, `index_display.html`). Creating one (`POST /api/admin/display-credentials {name}`) returns a one-time setup code shown only once, valid for 10 minutes. Enter that code directly on the kiosk device's setup screen; it is never embedded in a shareable URL. Revoking a credential (`DELETE /api/admin/display-credentials/:id`) immediately stops that display from loading schedule or safety-badge data.
 
-`https://dashboard.example.com/?api=https%3A%2F%2Fschedule.example.com`
+## People directory
 
-Opening that link validates and canonicalizes the HTTPS API base, saves it in that browser's `localStorage` for later visits, and immediately loads public `GET {baseUrl}/api/schedule`. It contains no JWT, username, password, or other credentials. An invalid `api` value is ignored and the browser continues with its configured backend and static-schedule fallback behavior.
+Any approved account (admin or viewer) can open **People directory** from the account bar to remove a person from the shared roster or change their skill, via `PATCH`/`DELETE /api/people/:name`. These edits are persisted on the backend and are visible to every signed-in user — they are distinct from the browser-local, per-shift "mark absent" removals in the **Attendance changes** panel, which only hide a single shift card in the current browser and do not change anyone's profile.
 
-The backend API response is `{ version, updated_at, rows }`. The shared backend is the supported setup for publishing and displaying schedules. The display pages use the backend first, then `schedule.json`; older external display links that include a public Gist ID remain readable for backward compatibility. They do not send authentication headers or credentials.
+## Unattended TV/kiosk displays
 
-The backend must allow the GitHub Pages origin and the `Authorization` and `Content-Type` request headers through CORS. Removing the backend connection in the dashboard removes its API base and admin session from that browser only.
+`card_view.html` and `index_display.html` never read schedule or safety-badge data without authentication, and they never accept a durable token or setup code in the URL. Each display page:
+
+1. On first run (or after a revoke), shows a **Set up this display** form asking for the backend API base URL and a one-time setup code from an admin.
+2. Exchanges the code for a long-lived, revocable display token (`POST /api/display-credentials/exchange {code}`) and stores only the token, in that device's `localStorage`.
+3. Uses the stored token (or, if the page is opened from an already signed-in dashboard tab sharing the same browser storage, that account's token) as `Authorization: Bearer <token>` on every `GET /api/schedule` and `GET /api/safety-badges` request.
+4. If the backend responds `403` (revoked or invalid token), the display clears its stored credential, shows an explicit "no longer authorised" message, and stops polling until a new setup code is entered. A `401` (expired/used setup code) is shown as an inline error on the setup form so it can be retried.
+
+Both pages send `Referrer-Policy: no-referrer` so the API base URL and any query parameters are never leaked to the backend via the `Referer` header.
+
+From the dashboard, **Open DC cards**/**Open CDC cards** open `card_view.html` with only the non-secret team/search/role filters and the backend API base in the query string, for example:
+
+`card_view.html?team=DC&api=https%3A%2F%2Fschedule.example.com`
+
+## No public/static fallback
+
+Earlier versions of this dashboard embedded a full roster directly in `index.html` and fell back to a committed `schedule.json` (and, for display links, an optional public GitHub Gist) whenever the shared backend was unreachable. All of that has been removed from this version: `index.html` no longer embeds any roster data, `schedule.json` no longer exists in the repository, and none of the dashboard or display pages fall back to it or to a Gist. If the backend is unreachable or a session/credential is invalid, the affected page shows an explicit error and stops — it never substitutes stale or public data.
+
+**Note:** this repository's Git history still contains earlier commits with the embedded roster and `schedule.json`, and any public GitHub Pages deployment, fork, clone, or raw file URL created before this change may still contain copies of that data. Removing files from the current commit does not revoke access to that history; rewriting history was explicitly out of scope for this change.
 
 ## Monthly hours report
 
@@ -32,6 +52,22 @@ Select a **Team** (DC or CDC) and **Report month** on the dashboard, then choose
 
 ## Shared safety badges
 
-Uploading a safety workbook still saves the normalized first-aid, fire-marshal, and working-at-height mappings in the operator browser. When the shared backend is configured and the operator is signed in, the dashboard also atomically publishes `{ badges }` to `PUT {baseUrl}/api/admin/safety-badges`; publish success or failure is shown without discarding the local result. **Clear safety badges** publishes the corresponding empty mapping when signed in and explicitly warns if that shared clear fails.
+Admins can upload a safety workbook, which the dashboard normalizes into first-aid, fire-marshal, and working-at-height mappings and atomically publishes to `PUT /api/admin/safety-badges`; publish success or failure is shown without discarding the local result. **Clear safety badges** publishes the corresponding empty mapping. Any signed-in account (and any authenticated display) can read the published badges via `GET /api/safety-badges` and see the same three safety badges rendered on cards.
 
-Card and unattended display links with `api=<public-base-url>` load `GET {baseUrl}/api/safety-badges` alongside the public schedule API and render the same three safety badges. Badge reads are public and never include an admin token; if the badge endpoint is unavailable, each page retains its local/static behavior.
+## Backend API contract used by this frontend
+
+- `POST /api/auth/register {email,password}` → `201 {status:"pending",message}`
+- `POST /api/auth/login {email,password}` → `200 {token,user:{id,email,role,status}}` (only for approved accounts; pending/rejected/revoked get `403 {error,status}`)
+- `GET /api/auth/me` (bearer) → `200 {id,email,role,status,bootstrap}`
+- `POST /api/admin/login {username,password}` → `200 {token,user:{id:null,email,role:"admin",status:"approved",bootstrap:true}}`
+- `GET /api/admin/users` (admin bearer) → `200 {users:[{id,email,role,status,created_at,updated_at}]}`
+- `PATCH /api/admin/users/:id {status?,role?}` (admin bearer) → `200` safe user record
+- `GET /api/schedule`, `GET /api/safety-badges` (approved human bearer or display bearer) → unchanged response shapes
+- `PUT /api/admin/schedule`, `PUT /api/admin/safety-badges` (admin bearer only)
+- `PATCH /api/people/:name {role}`, `DELETE /api/people/:name` (any approved bearer) → `200 {version,updated_at,rows_updated|rows_removed}`
+- `POST /api/admin/display-credentials {name}` (admin bearer) → `201 {id,name,scope:"dashboard:read",created_at,setup_expires_at,revoked_at,setup_code}`
+- `POST /api/display-credentials/exchange {code}` → `200 {token,scope:"dashboard:read",displayId}`
+- `GET /api/admin/display-credentials` (admin bearer) → `200 {credentials:[{id,name,scope,created_at,revoked_at,activated,setup_pending}]}`
+- `DELETE /api/admin/display-credentials/:id` (admin bearer) → `200` revoked metadata, `404` unknown
+
+The backend must allow the dashboard's origin and the `Authorization` and `Content-Type` request headers through CORS.
