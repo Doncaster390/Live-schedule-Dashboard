@@ -249,13 +249,11 @@ function testStaticFilesHaveNoPublicFallback(){
     assert.match(html,/<meta name="referrer" content="no-referrer">/,name+' must send a no-referrer policy.');
     assert.doesNotMatch(html,/schedule\.json/,name+' must not fall back to schedule.json.');
     assert.doesNotMatch(html,/api\.github\.com|gist/i,name+' must not read from a public Gist.');
-    assert.match(html,/<script src="auth\.js">/,name+' must load the Auth client.');
-    assert.match(html,/function currentToken\(\)/,name+' must resolve a bearer token (human account or display credential).');
-    assert.match(html,/fetchBackendSchedule\(base,undefined,token\)/,name+' must send its token to the schedule endpoint.');
-    assert.match(html,/exchangeDisplayCode/,name+' must support the display setup-code exchange.');
-    assert.match(html,/error\.status===403/,name+' must treat a revoked/invalid display token distinctly.');
-    assert.match(html,/error\.status===401/,name+' must treat an expired/used setup code distinctly.');
-    assert.match(html,/stopPolling/,name+' must stop polling once unauthorized.');
+    assert.doesNotMatch(html,/<script src="auth\.js">/,name+' kiosk pages read the public schedule/badge endpoints and no longer need the Auth client.');
+    assert.match(html,/function currentApiBase\(\)/,name+' must resolve the backend API base from ?api= (or a cached value).');
+    assert.match(html,/fetchBackendSchedule\(base\)/,name+' must read the public schedule endpoint without a bearer token.');
+    assert.match(html,/fetchBackendSafetyBadges\(base\)/,name+' must read the public safety-badges endpoint without a bearer token.');
+    assert.doesNotMatch(html,/exchangeDisplayCode|setupCode|Auth\.getDisplayCredential|Auth\.accountToken/,name+' must not require a display-credential setup flow for public reads.');
     assert.doesNotMatch(html,/[?&]code=|setupCode=/,name+' must never read a setup code from the URL.');
   }
   console.log('static file regression tests passed');

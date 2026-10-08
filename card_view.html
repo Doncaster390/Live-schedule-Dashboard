@@ -8,32 +8,25 @@
 <style>
 :root{--bg:#f4f7fb;--ink:#172033;--muted:#62708a;--line:#dbe3ef}*{box-sizing:border-box}html{scroll-behavior:auto}body{margin:0;background:radial-gradient(circle at 0 0,#e7efff 0,transparent 28rem),var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}.top{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 20px;border-bottom:1px solid #d8e2f1;background:rgba(244,247,251,.94);backdrop-filter:blur(12px)}h1{margin:0;font-size:clamp(1.1rem,2vw,1.45rem);letter-spacing:-.03em}.schedule-date{margin:2px 0 0;color:var(--muted);font-size:.82rem;font-weight:700}.status{color:var(--muted);font-size:.82rem;font-weight:700;text-align:right}.status::before{display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:#22a06b;content:""}.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(218px,1fr));gap:14px;margin:0;padding:20px;list-style:none}.card{min-height:154px;padding:15px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 5px 14px rgba(29,47,86,.08)}.name{font-size:15px;font-weight:800;line-height:1.2}.role{display:inline-block;margin-top:9px;padding:5px 8px;border-radius:7px;font-size:12px;font-weight:700}.role-dark-blue{background:#3b82f6;color:#fff}.role-dark-green{background:#22a06b;color:#fff}.role-dark-orange{background:#e67e22;color:#fff}.role-dark-yellow{background:#fde68a;color:#78350f}.role-brown{background:#d6b48a;color:#5b3a1e}.role-default{background:#f1f5f9;color:#334155}.times{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px}.time{padding:9px;border-radius:8px;background:#f8fafc}.time small{display:block;color:var(--muted);font-size:10px;text-transform:uppercase}.time b{display:block;margin-top:3px;color:#3730a3;font-size:18px}.meta{display:flex;justify-content:space-between;margin-top:12px;color:var(--muted);font-size:11px;font-weight:650}.empty{grid-column:1/-1;padding:48px 20px;border:2px dashed #c5d1e3;border-radius:14px;color:var(--muted);text-align:center}@media(max-width:540px){.top{padding:12px 16px}.cards{grid-template-columns:1fr;padding:16px}.status{font-size:.75rem}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 .name-row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.badges{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px}.badge{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-size:15px;font-weight:800;line-height:1}.badge-first-aid{background:#17803d}.badge-fire-marshal{background:#c62828}.badge-working-at-height{background:#e67e22}
-.setup-gate{max-width:420px;margin:60px auto;padding:22px;border:1px solid var(--line);border-radius:14px;background:#fff}.setup-gate h2{margin-top:0}.setup-gate label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px}.setup-gate input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:9px;padding:10px;margin-bottom:12px;font:inherit}.setup-gate button{border:0;border-radius:10px;padding:10px 16px;background:#2457d6;color:#fff;font-weight:700;cursor:pointer}.setup-error{color:#b91c1c;font-weight:700;margin-top:10px}
+.setup-gate{max-width:420px;margin:60px auto;padding:22px;border:1px solid var(--line);border-radius:14px;background:#fff}.setup-gate h2{margin-top:0}.setup-gate p{color:var(--muted)}
 </style>
 </head>
 <body>
 <header class="top"><div><h1 id="title">Schedule cards</h1><p id="scheduleDate" class="schedule-date"></p></div><div id="status" class="status" role="status" aria-live="polite">Loading schedule</div></header>
 <main>
 <section id="setupGate" class="setup-gate" hidden>
-<h2 id="setupTitle">Set up this display</h2>
-<p id="setupMessage">Ask an admin for a one-time setup code to connect this display to the schedule.</p>
-<form id="setupForm">
-<label for="setupApiBase">Backend API base URL</label><input id="setupApiBase" type="url" inputmode="url" required>
-<label for="setupCode">Setup code</label><input id="setupCode" type="text" autocomplete="off" required>
-<button type="submit">Connect display</button>
-</form>
-<p id="setupError" class="setup-error" role="alert" hidden></p>
+<h2>Connect this display</h2>
+<p id="setupMessage">Add <code>?api=https://your-backend</code> to this page's link to connect it to the live schedule.</p>
 </section>
 <ul id="cards" class="cards" aria-label="Coworker cards"></ul>
 </main>
 <script src="shared_schedule.js"></script>
-<script src="auth.js"></script>
 <script>
-const IMPORTED_ROWS_KEY='scheduleImportedRows',ABSENCES_KEY='scheduleAbsences',SAFETY_BADGES_KEY='scheduleSafetyBadges',REFRESH_MS=60000,SCROLL_MS=35,SCROLL_STEP=1,PAUSE_MS=5000;
+const IMPORTED_ROWS_KEY='scheduleImportedRows',ABSENCES_KEY='scheduleAbsences',SAFETY_BADGES_KEY='scheduleSafetyBadges',CACHED_API_BASE_KEY='scheduleCardViewApiBase',REFRESH_MS=60000,SCROLL_MS=35,SCROLL_STEP=1,PAUSE_MS=5000;
 const roleColors={"Transit Bay":"dark-blue","Transit Load":"dark-blue","DC Tipping":"dark-yellow","DC Loading":"dark-yellow","Replens":"dark-orange","Bayclearing":"dark-orange","Picking":"dark-yellow","Cycles":"brown"};
 const params=new URLSearchParams(location.search),team=['DC','CDC'].includes(params.get('team'))?params.get('team'):'DC',paramApiBase=params.get('api')||'';
 const filters={search:(params.get('search')||'').trim().toLowerCase(),roles:new Set(params.getAll('role')),date:params.get('date')||''};
-let schedule=[],safetyBadges=readLocalSafetyBadges(),scrollDirection=1,pauseUntil=0,activeViewKey='',pollHandle=0,revoked=false;
+let schedule=[],safetyBadges=readLocalSafetyBadges(),scrollDirection=1,pauseUntil=0,activeViewKey='',pollHandle=0;
 const el=id=>document.getElementById(id);
 function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
 function readLocalSafetyBadges(){try{const stored=localStorage.getItem(SAFETY_BADGES_KEY);return stored?SharedSchedule.normaliseSafetyBadges(JSON.parse(stored)):null;}catch(error){console.error('Unable to read safety badges',error);return null;}}
@@ -53,58 +46,39 @@ function removedShifts(){try{const stored=localStorage.getItem(ABSENCES_KEY),rem
 function visibleRows(){const now=new Date(),period=periodFromTime(now),date=filters.date||shiftDateFor(now),removed=removedShifts();return schedule.filter(row=>row.type===team&&row.period===period&&isoDate(row.date)===date&&(!filters.search||row.name.toLowerCase().includes(filters.search))&&(!filters.roles.size||filters.roles.has(row.role))&&!removed[absenceKey(row)]).sort((left,right)=>String(left.start).localeCompare(String(right.start)));}
 function card(row){const color=roleColors[row.role]||'default',badges=safetyBadgesFor(row.name);return '<li class="card"><div class="name-row"><div class="name">'+esc(row.name)+'</div>'+(badges?'<div class="badges" aria-label="Safety qualifications">'+badges+'</div>':'')+'</div><div class="role role-'+color+'">'+esc(row.role||'Work role not specified')+'</div><div class="times"><div class="time"><small>Start</small><b>'+shortTime(row.start)+'</b></div><div class="time"><small>End</small><b>'+shortTime(row.end)+'</b></div></div><div class="meta"><span>'+esc(row.period)+'</span><span>'+esc(row.hours)+' hrs</span></div></li>';}
 function render(){const rows=visibleRows(),now=new Date(),period=periodFromTime(now),scheduleDate=filters.date||shiftDateFor(now),viewKey=period+'|'+scheduleDate,viewChanged=activeViewKey!==viewKey;el('title').textContent=team+' '+period+' coworker cards';el('scheduleDate').textContent=scheduleDateLabel(scheduleDate);el('cards').innerHTML=rows.length?rows.map(card).join(''):'<li class="empty">No '+team+' coworkers match the current '+period+' shift.</li>';el('status').textContent=rows.length+' coworkers - '+period+' shift';if(viewChanged){window.scrollTo(0,0);scrollDirection=1;pauseUntil=Date.now()+PAUSE_MS;activeViewKey=viewKey;}}
-function stopPolling(){if(pollHandle){clearInterval(pollHandle);pollHandle=0;}}
-function currentApiBase(){const display=Auth.getDisplayCredential();return paramApiBase||(display&&display.apiBase)||Auth.getApiBase();}
-function currentToken(){const accountToken=Auth.accountToken();if(accountToken)return accountToken;const display=Auth.getDisplayCredential();return display?display.token:'';}
-function showUnauthorized(message){revoked=true;stopPolling();el('cards').innerHTML='';el('status').textContent=message;el('setupMessage').textContent=message+' Ask an admin to create a new display setup code, then enter it below.';el('setupGate').hidden=false;el('setupApiBase').value=currentApiBase();}
-function showSetupGate(){el('setupGate').hidden=false;el('setupApiBase').value=currentApiBase();el('setupCode').focus();}
-async function handleSetupSubmit(event){
-  event.preventDefault();
-  el('setupError').hidden=true;
-  const apiBase=el('setupApiBase').value.trim(),code=el('setupCode').value.trim();
-  try{
-    const base=SharedSchedule.backendApiBaseUrl(apiBase);
-    const result=await Auth.exchangeDisplayCode(code,base);
-    if(!result||!result.token)throw Error('The backend did not return a display token.');
-    Auth.setDisplayCredential(result.token,result.displayId,base);
-    el('setupCode').value='';
-    revoked=false;
-    el('setupGate').hidden=true;
-    load();
-    if(!pollHandle)pollHandle=setInterval(load,REFRESH_MS);
-  }catch(error){
-    el('setupError').textContent='Could not connect this display: '+error.message;
-    el('setupError').hidden=false;
+function currentApiBase(){
+  if(paramApiBase){
+    try{
+      const base=SharedSchedule.backendApiBaseUrl(paramApiBase);
+      try{localStorage.setItem(CACHED_API_BASE_KEY,base);}catch(error){/* ignore storage errors */}
+      return base;
+    }catch(error){console.error('Invalid api parameter',error);}
   }
+  try{return localStorage.getItem(CACHED_API_BASE_KEY)||'';}catch(error){return '';}
 }
-async function loadSafetyBadges(){const base=currentApiBase(),token=currentToken();if(!base||!token)return;try{safetyBadges=await SharedSchedule.fetchBackendSafetyBadges(base,undefined,token);render();}catch(error){console.error('Unable to load shared safety badges',error);}}
+function showSetupGate(message){el('setupMessage').textContent=message||'Add ?api=https://your-backend to this page\'s link to connect it to the live schedule.';el('setupGate').hidden=false;}
+async function loadSafetyBadges(){const base=currentApiBase();if(!base)return;try{safetyBadges=await SharedSchedule.fetchBackendSafetyBadges(base);render();}catch(error){console.error('Unable to load shared safety badges',error);}}
 async function load(){
-  if(revoked)return;
-  const base=currentApiBase(),token=currentToken();
-  if(!base||!token){showSetupGate();return;}
+  const base=currentApiBase();
+  if(!base){showSetupGate();return;}
   try{
-    schedule=mergeSchedules(normalise(await SharedSchedule.fetchBackendSchedule(base,undefined,token)),importedSchedules());
+    schedule=mergeSchedules(normalise(await SharedSchedule.fetchBackendSchedule(base)),importedSchedules());
     el('setupGate').hidden=true;
     await loadSafetyBadges();
     render();
     el('status').textContent=visibleRows().length+' coworkers - updated '+new Date().toLocaleTimeString();
   }catch(error){
     console.error('Unable to load the schedule',error);
-    if(error&&error.status===403){
-      Auth.clearDisplayCredential();
-      showUnauthorized('This display is no longer authorised to view the schedule.');
-      return;
+    if(schedule.length){
+      render();
+      el('status').textContent='Showing the last loaded schedule.';
+    }else{
+      el('status').textContent='Unable to load the schedule: '+error.message;
     }
-    if(error&&error.status===401){
-      showUnauthorized('This display is not signed in. Enter a setup code to reconnect.');
-      return;
-    }
-    el('status').textContent='Unable to load the schedule: '+error.message;
   }
 }
 function autoScroll(){if(matchMedia('(prefers-reduced-motion: reduce)').matches||Date.now()<pauseUntil)return;const maximum=Math.max(0,document.documentElement.scrollHeight-innerHeight);if(!maximum)return;const next=Math.min(maximum,Math.max(0,scrollY+scrollDirection*SCROLL_STEP));scrollTo(0,next);if(next>=maximum&&scrollDirection>0){scrollDirection=-1;pauseUntil=Date.now()+PAUSE_MS;}else if(next<=0&&scrollDirection<0){scrollDirection=1;pauseUntil=Date.now()+PAUSE_MS;}}
-function scheduleViewRefresh(){const delay=Math.max(0,nextViewBoundary(new Date()).getTime()-Date.now());setTimeout(()=>{if(!revoked)render();scheduleViewRefresh();},delay);}
-el('setupForm').addEventListener('submit',handleSetupSubmit);
+function scheduleViewRefresh(){const delay=Math.max(0,nextViewBoundary(new Date()).getTime()-Date.now());setTimeout(()=>{render();scheduleViewRefresh();},delay);}
 window.opener=null;window.addEventListener('storage',event=>{if(event.key===SAFETY_BADGES_KEY||event.key===null)safetyBadges=readLocalSafetyBadges();if(event.key===ABSENCES_KEY||event.key===SAFETY_BADGES_KEY||event.key===null)render();});
 load();scheduleViewRefresh();pollHandle=setInterval(load,REFRESH_MS);setInterval(autoScroll,SCROLL_MS);
 </script>

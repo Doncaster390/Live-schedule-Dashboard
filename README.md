@@ -2,7 +2,7 @@
 
 ## Account access
 
-The dashboard is a login-gated single-page app backed by a separate schedule API. Nobody can see schedule or safety-badge data, or use any dashboard feature, until they are signed in with an approved account or the dashboard is running as an authenticated unattended display.
+The dashboard (`index.html`) is a login-gated single-page app backed by a separate schedule API. Nobody can see dashboard features — filtering, downloads, the People directory, uploads — until they sign in with an approved account. `GET /api/schedule` and `GET /api/safety-badges` themselves are intentionally **public, unauthenticated reads** (restored at the user's explicit request so the no-login TV/kiosk card views keep working); everything else — registration/login/admin management, uploads, and People edits — still requires an approved bearer token.
 
 On first load, the dashboard shows a **Sign in** screen with three tabs:
 
@@ -19,7 +19,7 @@ An admin sees an **Admin: access & displays** button in the account bar. It open
 - **User access requests** — lists every registered account (`GET /api/admin/users`) with its email, status, and role. Changing the status (`pending`/`approved`/`rejected`/`revoked`) and/or role (`viewer`/`admin`) and clicking **Save** calls `PATCH /api/admin/users/:id` with the combined `{status, role}` body.
   - **Admin** accounts can upload schedule CSVs and safety-badge workbooks, publish them to the backend, and do everything a viewer can.
   - **Viewer** accounts can do everything except upload/publish schedule or safety-badge data — they can still view, filter, download reports, and manage the People directory below.
-- **Display credentials (kiosk/TV)** — manages separate, revocable credentials for unattended TV/kiosk displays (`card_view.html`, `index_display.html`). Creating one (`POST /api/admin/display-credentials {name}`) returns a one-time setup code shown only once, valid for 10 minutes. Enter that code directly on the kiosk device's setup screen; it is never embedded in a shareable URL. Revoking a credential (`DELETE /api/admin/display-credentials/:id`) immediately stops that display from loading schedule or safety-badge data.
+- **Display credentials (kiosk/TV)** — an optional, still-available backend capability for issuing separate, revocable scoped credentials (`POST /api/admin/display-credentials {name}`, `GET /api/admin/display-credentials`, `DELETE /api/admin/display-credentials/:id`). `card_view.html` and `index_display.html` no longer require one: since `GET /api/schedule`/`GET /api/safety-badges` are public reads, kiosk pages just need the backend API base URL (see below), not a setup code.
 
 ## People directory
 
@@ -27,18 +27,19 @@ Any approved account (admin or viewer) can open **People directory** from the ac
 
 ## Unattended TV/kiosk displays
 
-`card_view.html` and `index_display.html` never read schedule or safety-badge data without authentication, and they never accept a durable token or setup code in the URL. Each display page:
+`card_view.html` and `index_display.html` read `GET /api/schedule` and `GET /api/safety-badges` as **public, unauthenticated requests** — no sign-in, setup code, or stored token is required. Each display page:
 
-1. On first run (or after a revoke), shows a **Set up this display** form asking for the backend API base URL and a one-time setup code from an admin.
-2. Exchanges the code for a long-lived, revocable display token (`POST /api/display-credentials/exchange {code}`) and stores only the token, in that device's `localStorage`.
-3. Uses the stored token (or, if the page is opened from an already signed-in dashboard tab sharing the same browser storage, that account's token) as `Authorization: Bearer <token>` on every `GET /api/schedule` and `GET /api/safety-badges` request.
-4. If the backend responds `403` (revoked or invalid token), the display clears its stored credential, shows an explicit "no longer authorised" message, and stops polling until a new setup code is entered. A `401` (expired/used setup code) is shown as an inline error on the setup form so it can be retried.
+1. Reads the backend API base URL from a `?api=` query parameter and caches it to that device's `localStorage`, so the page keeps working across reloads/restarts without the query string (for example after a TV loses and regains power).
+2. Calls the public schedule/safety-badge endpoints on a fixed interval with no `Authorization` header.
+3. If a request fails (network error, backend unreachable), the page keeps showing the last successfully loaded schedule with a "Showing the last loaded schedule." status, or an inline error if nothing has loaded yet — it never falls back to `schedule.json` or a Gist.
 
 Both pages send `Referrer-Policy: no-referrer` so the API base URL and any query parameters are never leaked to the backend via the `Referer` header.
 
 From the dashboard, **Open DC cards**/**Open CDC cards** open `card_view.html` with only the non-secret team/search/role filters and the backend API base in the query string, for example:
 
 `card_view.html?team=DC&api=https%3A%2F%2Fschedule.example.com`
+
+Because `GET /api/schedule`/`GET /api/safety-badges` are public, this URL (and anyone who guesses the backend API base) can read schedule and safety-badge data without signing in — this is an explicit, accepted tradeoff to keep the old no-login kiosk/TV experience working. Writes (uploads, People edits, admin management) still require an approved human account.
 
 ## No public/static fallback
 
@@ -52,7 +53,7 @@ Select a **Team** (DC or CDC) and **Report month** on the dashboard, then choose
 
 ## Shared safety badges
 
-Admins can upload a safety workbook, which the dashboard normalizes into first-aid, fire-marshal, and working-at-height mappings and atomically publishes to `PUT /api/admin/safety-badges`; publish success or failure is shown without discarding the local result. **Clear safety badges** publishes the corresponding empty mapping. Any signed-in account (and any authenticated display) can read the published badges via `GET /api/safety-badges` and see the same three safety badges rendered on cards.
+Admins can upload a safety workbook, which the dashboard normalizes into first-aid, fire-marshal, and working-at-height mappings and atomically publishes to `PUT /api/admin/safety-badges`; publish success or failure is shown without discarding the local result. **Clear safety badges** publishes the corresponding empty mapping. `GET /api/safety-badges` is a public read, so anyone (signed in or not, including the kiosk/TV pages) can see the same three safety badges rendered on cards.
 
 ## Backend API contract used by this frontend
 
@@ -62,10 +63,10 @@ Admins can upload a safety workbook, which the dashboard normalizes into first-a
 - `POST /api/admin/login {username,password}` → `200 {token,user:{id:null,email,role:"admin",status:"approved",bootstrap:true}}`
 - `GET /api/admin/users` (admin bearer) → `200 {users:[{id,email,role,status,created_at,updated_at}]}`
 - `PATCH /api/admin/users/:id {status?,role?}` (admin bearer) → `200` safe user record
-- `GET /api/schedule`, `GET /api/safety-badges` (approved human bearer or display bearer) → unchanged response shapes
+- `GET /api/schedule`, `GET /api/safety-badges` → **public, unauthenticated reads** (no bearer token required, restored at the user's explicit request); unchanged response shapes and `no-store` caching
 - `PUT /api/admin/schedule`, `PUT /api/admin/safety-badges` (admin bearer only)
 - `PATCH /api/people/:name {role}`, `DELETE /api/people/:name` (any approved bearer) → `200 {version,updated_at,rows_updated|rows_removed}`
-- `POST /api/admin/display-credentials {name}` (admin bearer) → `201 {id,name,scope:"dashboard:read",created_at,setup_expires_at,revoked_at,setup_code}`
+- `POST /api/admin/display-credentials {name}` (admin bearer) → `201 {id,name,scope:"dashboard:read",created_at,setup_expires_at,revoked_at,setup_code}` — optional backend capability; not required by `card_view.html`/`index_display.html` now that schedule/badge reads are public
 - `POST /api/display-credentials/exchange {code}` → `200 {token,scope:"dashboard:read",displayId}`
 - `GET /api/admin/display-credentials` (admin bearer) → `200 {credentials:[{id,name,scope,created_at,revoked_at,activated,setup_pending}]}`
 - `DELETE /api/admin/display-credentials/:id` (admin bearer) → `200` revoked metadata, `404` unknown
