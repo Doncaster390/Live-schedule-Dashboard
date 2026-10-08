@@ -227,9 +227,21 @@
 
   // ---- Admin: users ----
 
+  const loadedUsersById=new Map();
+
+  function buildUserPatch(original,nextStatus,nextRole){
+    const patch={};
+    if(!original||nextStatus!==original.status)patch.status=nextStatus;
+    if(!original||nextRole!==original.role)patch.role=nextRole;
+    return patch;
+  }
+  window.buildUserPatch=buildUserPatch;
+
   function renderUsersList(users){
     const list=byId('usersList');
     if(!list)return;
+    loadedUsersById.clear();
+    users.forEach(user=>loadedUsersById.set(String(user.id),user));
     if(!users.length){
       list.innerHTML='<p class="small">No access requests yet.</p>';
       return;
@@ -265,8 +277,11 @@
     const statusSelect=byId('usersList').querySelector('[data-user-status="'+id+'"]');
     const roleSelect=byId('usersList').querySelector('[data-user-role="'+id+'"]');
     showPanelError('usersError','');
+    const original=loadedUsersById.get(id);
+    const patch=buildUserPatch(original,statusSelect.value,roleSelect.value);
+    if(!Object.keys(patch).length)return;
     try{
-      await Auth.updateUser(id,{status:statusSelect.value,role:roleSelect.value});
+      await Auth.updateUser(id,patch);
       await refreshUsersList();
     }catch(error){
       if(handleAuthFailureFromPanel(error))return;
