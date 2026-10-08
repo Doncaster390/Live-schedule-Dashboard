@@ -232,6 +232,8 @@ function testStaticFilesHaveNoPublicFallback(){
   assert.match(indexHtml,/id="adminSignInForm" hidden/);
   assert.match(indexHtml,/id="peoplePanel"/);
   assert.match(indexHtml,/id="adminPanel"/);
+  assert.match(indexHtml,/id="usersSavedNote"/,'the admin panel must show a saved/no-change confirmation note.');
+  assert.doesNotMatch(indexHtml,/id="createDisplayForm"|id="displayList"|id="displaySetupCode"|id="displaysError"/,'the admin panel no longer needs a display-credential setup UI now that kiosk reads are public.');
 
   const dashboard=fs.readFileSync('dashboard.js','utf8');
   assert.doesNotMatch(dashboard,/schedule\.json/,'dashboard.js must not fall back to schedule.json.');
@@ -288,6 +290,14 @@ function testAdminUserSaveOnlyPatchesChangedFields(){
   console.log('admin user save patch tests passed');
 }
 
+function testAdminSaveShowsFeedback(){
+  const appSrc=fs.readFileSync('app.js','utf8');
+  assert.match(appSrc,/showPanelSavedNote\('No changes to save for this user\.'\)/,'Save must tell the admin explicitly when there is nothing to change, instead of doing nothing silently.');
+  assert.match(appSrc,/showPanelSavedNote\('Saved\.'\)/,'Save must confirm a successful update so admins are not left guessing whether it persisted.');
+  assert.doesNotMatch(appSrc,/handleCreateDisplay|handleDisplayListClick|refreshDisplayList|renderDisplayList/,'the admin screen no longer needs the display-credential setup UI now that kiosk reads are public.');
+  console.log('admin save feedback UI tests passed');
+}
+
 (async()=>{
   testSharedScheduleUrlBuilders();
   await testSharedScheduleFetchHelpers();
@@ -296,5 +306,6 @@ function testAdminUserSaveOnlyPatchesChangedFields(){
   await testAuthPeopleAndDisplayCredentials();
   testStaticFilesHaveNoPublicFallback();
   testAdminUserSaveOnlyPatchesChangedFields();
+  testAdminSaveShowsFeedback();
   console.log('all tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
