@@ -2,140 +2,271 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 
-const context={URL,URLSearchParams,console};
-vm.createContext(context);
-vm.runInContext(fs.readFileSync('shared_schedule.js','utf8'),context);
-const shared=context.SharedSchedule;
-const gistId='0123456789abcdef0123456789abcdef';
+function makeLocalStorage(){
+  const store=new Map();
+  return {
+    getItem:key=>store.has(key)?store.get(key):null,
+    setItem:(key,value)=>{store.set(key,String(value));},
+    removeItem:key=>{store.delete(key);},
+    clear:()=>{store.clear();}
+  };
+}
+
+function loadSharedSchedule(){
+  const context={URL,URLSearchParams,console,fetch:undefined};
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync('shared_schedule.js','utf8'),context);
+  return {context,shared:context.SharedSchedule};
+}
+
+function loadAuth(fetchImpl){
+  const context={URL,URLSearchParams,console,localStorage:makeLocalStorage(),fetch:fetchImpl,window:undefined};
+  context.window=context;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync('shared_schedule.js','utf8'),context);
+  vm.runInContext(fs.readFileSync('auth.js','utf8'),context);
+  return context;
+}
+
 const backendBase='https://schedule.example.test';
 
-assert.equal(shared.gistIdFromReference(gistId),gistId);
-assert.equal(shared.gistIdFromReference('https://api.github.com/gists/'+gistId),gistId);
-assert.equal(shared.gistIdFromReference('https://example.test/gists/'+gistId),'');
-assert.equal(shared.backendApiBaseUrl(backendBase+'/'),backendBase);
-assert.equal(shared.backendScheduleUrl(backendBase),backendBase+'/api/schedule');
-assert.equal(shared.backendLoginUrl(backendBase),backendBase+'/api/admin/login');
-assert.equal(shared.backendAdminScheduleUrl(backendBase),backendBase+'/api/admin/schedule');
-assert.equal(shared.backendSafetyBadgesUrl(backendBase),backendBase+'/api/safety-badges');
-assert.equal(shared.backendAdminSafetyBadgesUrl(backendBase),backendBase+'/api/admin/safety-badges');
-assert.throws(()=>shared.backendApiBaseUrl('http://schedule.example.test'),/without credentials/);
-assert.throws(()=>shared.backendApiBaseUrl('https://admin:secret@schedule.example.test'),/without credentials/);
-assert.throws(()=>shared.backendApiBaseUrl('https://schedule.example.test/api'),/without credentials/);
+function testSharedScheduleUrlBuilders(){
+  const {shared}=loadSharedSchedule();
+  assert.equal(shared.backendApiBaseUrl(backendBase+'/'),backendBase);
+  assert.throws(()=>shared.backendApiBaseUrl('http://schedule.example.test'),/without credentials/);
+  assert.throws(()=>shared.backendApiBaseUrl('https://user:pass@schedule.example.test'),/without credentials/);
+  assert.throws(()=>shared.backendApiBaseUrl('https://schedule.example.test/api'),/without credentials/);
 
-const link=shared.cardViewUrl('card_view.html',{team:'CDC',search:'Alex',roles:['Cycles','Picking'],api:backendBase,gist:gistId});
-const params=new URL(link,'https://dashboard.test/').searchParams;
-assert.equal(params.get('team'),'CDC');
-assert.equal(params.get('search'),'Alex');
-assert.deepEqual(params.getAll('role'),['Cycles','Picking']);
-assert.equal(params.get('api'),backendBase);
-assert.equal(params.get('gist'),gistId);
-assert.equal(params.has('date'),false);
-assert.equal(params.has('token'),false);
+  assert.equal(shared.backendScheduleUrl(backendBase),backendBase+'/api/schedule');
+  assert.equal(shared.backendLoginUrl(backendBase),backendBase+'/api/admin/login');
+  assert.equal(shared.backendAdminScheduleUrl(backendBase),backendBase+'/api/admin/schedule');
+  assert.equal(shared.backendSafetyBadgesUrl(backendBase),backendBase+'/api/safety-badges');
+  assert.equal(shared.backendAdminSafetyBadgesUrl(backendBase),backendBase+'/api/admin/safety-badges');
+  assert.equal(shared.backendRegisterUrl(backendBase),backendBase+'/api/auth/register');
+  assert.equal(shared.backendUserLoginUrl(backendBase),backendBase+'/api/auth/login');
+  assert.equal(shared.backendMeUrl(backendBase),backendBase+'/api/auth/me');
+  assert.equal(shared.backendAdminUsersUrl(backendBase),backendBase+'/api/admin/users');
+  assert.equal(shared.backendAdminUserUrl(backendBase,'u 1'),backendBase+'/api/admin/users/u%201');
+  assert.equal(shared.backendPersonUrl(backendBase,'Alex Smith'),backendBase+'/api/people/Alex%20Smith');
+  assert.equal(shared.backendAdminDisplayCredentialsUrl(backendBase),backendBase+'/api/admin/display-credentials');
+  assert.equal(shared.backendAdminDisplayCredentialUrl(backendBase,'d1'),backendBase+'/api/admin/display-credentials/d1');
+  assert.equal(shared.backendDisplayCredentialExchangeUrl(backendBase),backendBase+'/api/display-credentials/exchange');
 
-const dashboardLink=shared.dashboardShareUrl('https://dashboard.test/index.html?token=secret#private',backendBase+'/');
-assert.equal(dashboardLink,'https://dashboard.test/index.html?api=https%3A%2F%2Fschedule.example.test');
-assert.doesNotMatch(dashboardLink,/token|secret|private/);
-assert.throws(()=>shared.dashboardShareUrl('https://dashboard.test/index.html','https://user:password@schedule.example.test'),/without credentials/);
+  const link=shared.cardViewUrl('card_view.html',{team:'CDC',search:'Alex',roles:['Cycles','Picking'],api:backendBase});
+  const params=new URL(link,'https://dashboard.test/').searchParams;
+  assert.equal(params.get('team'),'CDC');
+  assert.equal(params.get('search'),'Alex');
+  assert.deepEqual(params.getAll('role'),['Cycles','Picking']);
+  assert.equal(params.get('api'),backendBase);
+  assert.equal(params.has('gist'),false,'card view links must never include a gist reference');
+  assert.equal(params.has('date'),false);
+  assert.equal(params.has('token'),false);
 
-(async()=>{
-  const backendRows=await shared.fetchBackendSchedule(backendBase,async(url,options)=>{
+  const dashboardLink=shared.dashboardShareUrl('https://dashboard.test/index.html?token=secret#private',backendBase+'/');
+  assert.equal(dashboardLink,'https://dashboard.test/index.html?api=https%3A%2F%2Fschedule.example.test');
+  assert.doesNotMatch(dashboardLink,/token|secret|private/);
+
+  assert.equal(shared.gistIdFromReference,undefined,'Gist support must be removed from the frontend.');
+  assert.equal(shared.fetchGistSchedule,undefined,'Gist support must be removed from the frontend.');
+  console.log('shared_schedule URL builder tests passed');
+}
+
+async function testSharedScheduleFetchHelpers(){
+  const {shared}=loadSharedSchedule();
+  const rows=await shared.fetchBackendSchedule(backendBase,async(url,options)=>{
     assert.equal(url,backendBase+'/api/schedule');
     assert.equal(options.cache,'no-store');
     assert.equal(options.headers.Accept,'application/json');
+    assert.equal(options.headers.Authorization,'Bearer tok-123');
     return {ok:true,status:200,json:async()=>({version:3,updated_at:'2026-09-24T09:00:00Z',rows:[{name:'Alex',date:'2026-09-07'}]})};
-  });
-  assert.equal(backendRows[0].name,'Alex');
+  },'tok-123');
+  assert.equal(rows[0].name,'Alex');
+
+  await assert.rejects(shared.fetchBackendSchedule(backendBase,async()=>({ok:false,status:403,json:async()=>({error:'forbidden'})}),'bad-token'),error=>{assert.equal(error.status,403);return true;});
 
   const badges=await shared.fetchBackendSafetyBadges(backendBase,async(url,options)=>{
     assert.equal(url,backendBase+'/api/safety-badges');
-    assert.equal(options.cache,'no-store');
-    assert.equal(options.headers.Accept,'application/json');
-    assert.equal(options.headers.Authorization,undefined);
+    assert.equal(options.headers.Authorization,'Bearer tok-123');
     return {ok:true,status:200,json:async()=>({version:2,updated_at:'2026-09-24T09:00:00Z',badges:{firstAid:['Alex Smith','Alex Smith'],fireMarshal:['Sam Jones'],workingAtHeight:[]}})};
-  });
+  },'tok-123');
   assert.deepEqual(JSON.parse(JSON.stringify(badges)),{firstAid:['Alex Smith'],fireMarshal:['Sam Jones'],workingAtHeight:[]});
   assert.deepEqual(JSON.parse(JSON.stringify(shared.safetyBadgesFor(badges,'Smith, Alex'))),[{className:'first-aid',label:'First aider',symbol:'✚'}]);
   assert.throws(()=>shared.normaliseSafetyBadges({firstAid:[],fireMarshal:[]}),/working at height/);
+  console.log('shared_schedule fetch helper tests passed');
+}
 
-  const rows=await shared.fetchGistSchedule(gistId,async url=>{
-    assert.equal(url,'https://api.github.com/gists/'+gistId);
-    return {ok:true,status:200,json:async()=>({files:{'live-schedule.json':{content:'[{"name":"Alex","date":"2026-09-07"}]'}}})};
+async function testAuthRegisterLoginMe(){
+  const calls=[];
+  const context=loadAuth(async(url,options)=>{
+    calls.push({url,options});
+    if(url.endsWith('/api/auth/register')){
+      return {ok:true,status:201,text:async()=>JSON.stringify({status:'pending',message:'Your request is pending approval.'})};
+    }
+    if(url.endsWith('/api/auth/login')){
+      const body=JSON.parse(options.body);
+      if(body.password!=='correct-horse')return {ok:false,status:401,text:async()=>JSON.stringify({error:'Invalid email or password.'})};
+      return {ok:true,status:200,text:async()=>JSON.stringify({token:'human-token',user:{id:'u1',email:body.email,role:'viewer',status:'approved'}})};
+    }
+    if(url.endsWith('/api/auth/me')){
+      assert.equal(options.headers.Authorization,'Bearer human-token');
+      return {ok:true,status:200,text:async()=>JSON.stringify({id:'u1',email:'a@test.com',role:'viewer',status:'approved',bootstrap:false})};
+    }
+    throw Error('unexpected url '+url);
   });
-  assert.equal(rows[0].name,'Alex');
-  assert.equal(rows[0].date,'2026-09-07');
-  assert.deepEqual(JSON.parse(JSON.stringify(rows)),[{name:'Alex',date:'2026-09-07'}]);
+  context.Auth.setApiBase(backendBase);
 
-  const rawRows=await shared.fetchGistSchedule(gistId,async url=>{
-    if(url==='https://api.github.com/gists/'+gistId)return {ok:true,status:200,json:async()=>({files:{'live-schedule.json':{truncated:true,raw_url:'https://gist.githubusercontent.com/example/'+gistId+'/raw/live-schedule.json'}}})};
-    assert.equal(url,'https://gist.githubusercontent.com/example/'+gistId+'/raw/live-schedule.json');
-    return {ok:true,status:200,text:async()=>'[{"name":"Sam","date":"2026-09-08"}]'};
+  const registerResult=await context.Auth.register('a@test.com','p@ssword1');
+  assert.equal(registerResult.status,'pending');
+  assert.equal(context.Auth.getAccount(),null,'Registering must never store a token.');
+
+  await assert.rejects(context.Auth.login('a@test.com','wrong'),error=>{assert.equal(error.status,401);return true;});
+  assert.equal(context.Auth.getAccount(),null,'A failed login must not store a token.');
+
+  const loginResult=await context.Auth.login('a@test.com','correct-horse');
+  assert.equal(loginResult.token,'human-token');
+  assert.equal(context.Auth.accountToken(),'human-token');
+  assert.equal(context.Auth.accountUser().role,'viewer');
+  assert.equal(context.Auth.isAdmin(),false);
+
+  const me=await context.Auth.me();
+  assert.equal(me.status,'approved');
+
+  context.Auth.logout();
+  assert.equal(context.Auth.getAccount(),null);
+
+  const registerCall=calls.find(call=>call.url.endsWith('/api/auth/register'));
+  assert.equal(registerCall.options.headers.Authorization,undefined,'Registration must never send an Authorization header.');
+  console.log('auth register/login/me tests passed');
+}
+
+async function testAuthAdminLoginAndUserManagement(){
+  const context=loadAuth(async(url,options)=>{
+    if(url.endsWith('/api/admin/login')){
+      return {ok:true,status:200,text:async()=>JSON.stringify({token:'admin-token',user:{id:null,email:'admin',role:'admin',status:'approved',bootstrap:true}})};
+    }
+    if(url.endsWith('/api/admin/users')&&(options.method||'GET')==='GET'){
+      assert.equal(options.headers.Authorization,'Bearer admin-token');
+      return {ok:true,status:200,text:async()=>JSON.stringify({users:[{id:'u1',email:'a@test.com',role:'viewer',status:'pending',created_at:'2026-01-01',updated_at:'2026-01-01'}]})};
+    }
+    if(url.endsWith('/api/admin/users/u1')&&options.method==='PATCH'){
+      assert.deepEqual(JSON.parse(options.body),{status:'approved',role:'viewer'});
+      return {ok:true,status:200,text:async()=>JSON.stringify({id:'u1',email:'a@test.com',role:'viewer',status:'approved',created_at:'2026-01-01',updated_at:'2026-01-02'})};
+    }
+    throw Error('unexpected url '+url+' '+(options&&options.method));
   });
-  assert.equal(rawRows[0].name,'Sam');
+  context.Auth.setApiBase(backendBase);
+  await context.Auth.adminLogin('admin','1234');
+  assert.equal(context.Auth.isAdmin(),true);
+  const {users}=await context.Auth.listUsers();
+  assert.equal(users.length,1);
+  const updated=await context.Auth.updateUser('u1',{status:'approved',role:'viewer'});
+  assert.equal(updated.status,'approved');
+  console.log('auth admin login/user management tests passed');
+}
+
+async function testAuthPeopleAndDisplayCredentials(){
+  const context=loadAuth(async(url,options)=>{
+    if(url.endsWith('/api/people/Alex%20Smith')&&options.method==='PATCH'){
+      assert.deepEqual(JSON.parse(options.body),{role:'Cycles'});
+      return {ok:true,status:200,text:async()=>JSON.stringify({version:4,updated_at:'2026-01-01',rows_updated:2})};
+    }
+    if(url.endsWith('/api/people/Alex%20Smith')&&options.method==='DELETE'){
+      return {ok:true,status:200,text:async()=>JSON.stringify({version:5,updated_at:'2026-01-02',rows_removed:2})};
+    }
+    if(url.endsWith('/api/admin/display-credentials')&&options.method==='POST'){
+      assert.deepEqual(JSON.parse(options.body),{name:'Breakroom TV'});
+      return {ok:true,status:201,text:async()=>JSON.stringify({id:'d1',name:'Breakroom TV',scope:'dashboard:read',created_at:'2026-01-01',setup_expires_at:'2026-01-01T00:10:00Z',revoked_at:null,setup_code:'ABC123'})};
+    }
+    if(url.endsWith('/api/admin/display-credentials')&&(options.method||'GET')==='GET'){
+      return {ok:true,status:200,text:async()=>JSON.stringify({credentials:[{id:'d1',name:'Breakroom TV',scope:'dashboard:read',created_at:'2026-01-01',revoked_at:null,activated:false,setup_pending:true}]})};
+    }
+    if(url.endsWith('/api/admin/display-credentials/d1')&&options.method==='DELETE'){
+      return {ok:true,status:200,text:async()=>JSON.stringify({id:'d1',name:'Breakroom TV',scope:'dashboard:read',revoked_at:'2026-01-02'})};
+    }
+    if(url.endsWith('/api/display-credentials/exchange')&&options.method==='POST'){
+      assert.deepEqual(JSON.parse(options.body),{code:'ABC123'});
+      assert.equal(options.headers.Authorization,undefined,'Exchanging a setup code must not send a bearer token.');
+      return {ok:true,status:200,text:async()=>JSON.stringify({token:'display-token',scope:'dashboard:read',displayId:'d1'})};
+    }
+    throw Error('unexpected url '+url+' '+(options&&options.method));
+  });
+  context.Auth.setApiBase(backendBase);
+  context.Auth.setAccount('human-token',{id:'u1',email:'a@test.com',role:'viewer',status:'approved'});
+
+  const patchResult=await context.Auth.patchPerson('Alex Smith',{role:'Cycles'});
+  assert.equal(patchResult.rows_updated,2);
+  const deleteResult=await context.Auth.deletePerson('Alex Smith');
+  assert.equal(deleteResult.rows_removed,2);
+
+  const created=await context.Auth.createDisplayCredential('Breakroom TV');
+  assert.equal(created.setup_code,'ABC123');
+  const {credentials}=await context.Auth.listDisplayCredentials();
+  assert.equal(credentials[0].setup_pending,true);
+  const revoked=await context.Auth.revokeDisplayCredential('d1');
+  assert.ok(revoked.revoked_at);
+
+  const exchange=await context.Auth.exchangeDisplayCode('ABC123',backendBase);
+  assert.equal(exchange.token,'display-token');
+  context.Auth.setDisplayCredential(exchange.token,exchange.displayId,backendBase);
+  assert.equal(context.Auth.getDisplayCredential().token,'display-token');
+  context.Auth.clearDisplayCredential();
+  assert.equal(context.Auth.getDisplayCredential(),null);
+  console.log('auth people/display-credential tests passed');
+}
+
+function testStaticFilesHaveNoPublicFallback(){
+  assert.equal(fs.existsSync('schedule.json'),false,'schedule.json must not be published alongside the dashboard.');
+
+  const indexHtml=fs.readFileSync('index.html','utf8');
+  assert.doesNotMatch(indexHtml,/initialData/,'index.html must not embed any roster of shift rows.');
+  assert.match(indexHtml,/let data=\[\]/,'index.html should start with an empty, server-loaded data array.');
+  assert.doesNotMatch(indexHtml,/schedule\.json/,'index.html must not reference schedule.json.');
+  assert.match(indexHtml,/<script src="shared_schedule\.js"><\/script>/);
+  assert.match(indexHtml,/<script src="auth\.js"><\/script>/);
+  assert.match(indexHtml,/<script src="app\.js[^"]*"><\/script>/);
+  assert.match(indexHtml,/<script src="dashboard\.js[^"]*"><\/script>/);
+  assert.match(indexHtml,/id="authGate"/);
+  assert.match(indexHtml,/id="appRoot" hidden/);
+  assert.match(indexHtml,/id="signInForm"/);
+  assert.match(indexHtml,/id="requestAccessForm" hidden/);
+  assert.match(indexHtml,/id="adminSignInForm" hidden/);
+  assert.match(indexHtml,/id="peoplePanel"/);
+  assert.match(indexHtml,/id="adminPanel"/);
+
+  const dashboard=fs.readFileSync('dashboard.js','utf8');
+  assert.doesNotMatch(dashboard,/schedule\.json/,'dashboard.js must not fall back to schedule.json.');
+  assert.doesNotMatch(dashboard,/api\.github\.com|gist/i,'dashboard.js must not read from a public Gist.');
+  assert.match(dashboard,/^function initDashboard\(\)\{/m);
+  assert.match(dashboard,/window\.initDashboard=initDashboard;/);
+  assert.doesNotMatch(dashboard,/\}\s*initDashboard\(\);/,'dashboard.js must not auto-run before login.');
+  assert.match(dashboard,/Auth\.accountToken\(\)/);
+  assert.match(dashboard,/Auth\.isAdmin\(\)/);
+  assert.match(dashboard,/window\.onAuthExpired/);
 
   const cardView=fs.readFileSync('card_view.html','utf8');
   const unattendedDisplay=fs.readFileSync('index_display.html','utf8');
-  const dashboard=fs.readFileSync('dashboard.js','utf8');
-  const dateValueSource=dashboard.match(/^function dateValue\(value\)\{.+\}$/m);
-  const shiftDateLabelSource=dashboard.match(/^function shiftDateLabel\(value\)\{.+\}$/m);
-  assert.ok(dateValueSource,'The dashboard should normalize shift dates.');
-  assert.ok(shiftDateLabelSource,'The dashboard should format a human-readable shift date.');
-  vm.runInContext(dateValueSource[0],context);
-  vm.runInContext(shiftDateLabelSource[0],context);
-  assert.equal(context.shiftDateLabel('07/09/2026'),'Mon, 7 Sept 2026');
-  assert.match(cardView,/SharedSchedule\.fetchBackendSchedule\(backendSource\)/);
-  assert.match(cardView,/SharedSchedule\.fetchBackendSafetyBadges\(backendSource\)/);
-  assert.match(cardView,/SharedSchedule\.fetchGistSchedule\(sharedSource\)/);
-  assert.match(unattendedDisplay,/SharedSchedule\.fetchBackendSchedule\(backendSource\)/);
-  assert.match(unattendedDisplay,/SharedSchedule\.fetchBackendSafetyBadges\(backendSource\)/);
-  assert.match(unattendedDisplay,/SharedSchedule\.fetchGistSchedule\(sharedSource\)/);
-  assert.match(dashboard,/SharedSchedule\.backendApiBaseUrl\(reference\)/);
-  assert.match(dashboard,/localStorage\.setItem\(SHARED_BACKEND_API_BASE_KEY,base\)/);
-  assert.match(dashboard,/SharedSchedule\.dashboardShareUrl\(window\.location\.href,base\)/);
-  assert.match(dashboard,/sharedBackendUrlError='The dashboard link has an invalid backend API base URL/);
-  assert.match(dashboard,/initialiseSharedBackendFromUrl\(\);[\s\S]*refreshLiveRows\(\);/);
-  assert.doesNotMatch(dashboard,/Public Gist|sharedGist|gistRequest|operatorToken|api\.github\.com/i);
-  assert.doesNotMatch(cardView,/params\.get\('token'\)/);
-  assert.doesNotMatch(unattendedDisplay,/params\.get\('token'\)/);
-  assert.doesNotMatch(cardView,/Authorization/);
-  assert.doesNotMatch(unattendedDisplay,/Authorization/);
-  assert.match(dashboard,/backendAdminSafetyBadgesUrl\(base\)/);
-  assert.match(dashboard,/fetchBackendSafetyBadges\(base\)/);
-  assert.match(dashboard,/body:\{badges:SharedSchedule\.normaliseSafetyBadges\(badges\)\}/);
-  assert.match(dashboard,/shared clearing failed/);
-  assert.match(dashboard,/id="sharedBackendLoginError" class="data-note hint" role="alert" aria-live="assertive" hidden/);
-  assert.match(dashboard,/function showSharedBackendLoginError\(message\)\{const error=byId\('sharedBackendLoginError'\)/);
-  assert.match(dashboard,/async function loginSharedBackend\(\)\{showSharedBackendLoginError\(''\);try\{/);
-  assert.match(dashboard,/localStorage\.setItem\(SHARED_BACKEND_TOKEN_KEY,token\);byId\('sharedBackendPassword'\)\.value='';showSharedBackendLoginError\(''\);/);
-  assert.match(dashboard,/catch\(error\)\{showSharedBackendLoginError\('Could not sign in to the shared backend: '\+error\.message\);\}\}/);
-  assert.doesNotMatch(dashboard,/byId\('sharedBackendPassword'\)\.value='';showError\(''\);updateAdminVisibility\(\);byId\('status'\)\.textContent='Signed in/);
-  assert.match(dashboard,/id="signOutSharedBackend" class="clear admin-authed-only" type="button" hidden>Sign out<\/button>/);
-  assert.match(dashboard,/function signOutSharedBackend\(\)\{localStorage\.removeItem\(SHARED_BACKEND_TOKEN_KEY\);/);
-  assert.doesNotMatch(dashboard,/function signOutSharedBackend\(\)\{[^}]*removeItem\(SHARED_BACKEND_API_BASE_KEY\)/);
-  assert.match(dashboard,/byId\('signOutSharedBackend'\)\.addEventListener\('click',signOutSharedBackend\)/);
-  assert.match(dashboard,/id="toggleSharedBackendPassword" class="clear" type="button" aria-pressed="false" aria-label="Show admin password"/);
-  assert.match(dashboard,/function toggleSharedBackendPasswordVisibility\(\)\{const input=byId\('sharedBackendPassword'\),button=byId\('toggleSharedBackendPassword'\);if\(!input\|\|!button\)return;/);
-  assert.doesNotMatch(dashboard,/function toggleSharedBackendPasswordVisibility\(\)\{[^}]*\.value/);
-  assert.match(dashboard,/byId\('toggleSharedBackendPassword'\)\.addEventListener\('click',toggleSharedBackendPasswordVisibility\)/);
-  const indexHtml=fs.readFileSync('index.html','utf8');
-  assert.doesNotMatch(indexHtml,/dashboard\.js\?v=20260929-weekly-hours-layout/);
-  assert.doesNotMatch(indexHtml,/dashboard\.js\?v=20261007-signin-error-signout/);
-  assert.match(indexHtml,/dashboard\.js\?v=\d{8}-[a-z0-9-]+"/);
-  assert.match(dashboard,/<div class="shift-date"><span>Shift date<\/span><time datetime="/);
-  assert.match(dashboard,/shiftDateLabel\(row\.date\)/);
-  assert.doesNotMatch(cardView,/shift-date/);
-  assert.doesNotMatch(unattendedDisplay,/shift-date/);
-  assert.match(dashboard,/downloadMonthlyHoursReport/);
-  assert.match(dashboard,/hours-by-work-role-/);
-  assert.match(dashboard,/Monthly hours/);
-  assert.match(dashboard,/Weekly hours/);
-  assert.match(dashboard,/weeklyHoursRows/);
-  assert.match(dashboard,/blockIndex<blocks\.length-1\?\[''\]:\[\]/);
-  assert.match(dashboard,/weeklyRows=weeklyHoursRows\(sourceRows,group\)/);
-  assert.match(dashboard,/Scheduled hours/);
+  for(const [name,html] of [['card_view.html',cardView],['index_display.html',unattendedDisplay]]){
+    assert.match(html,/<meta name="referrer" content="no-referrer">/,name+' must send a no-referrer policy.');
+    assert.doesNotMatch(html,/schedule\.json/,name+' must not fall back to schedule.json.');
+    assert.doesNotMatch(html,/api\.github\.com|gist/i,name+' must not read from a public Gist.');
+    assert.match(html,/<script src="auth\.js">/,name+' must load the Auth client.');
+    assert.match(html,/function currentToken\(\)/,name+' must resolve a bearer token (human account or display credential).');
+    assert.match(html,/fetchBackendSchedule\(base,undefined,token\)/,name+' must send its token to the schedule endpoint.');
+    assert.match(html,/exchangeDisplayCode/,name+' must support the display setup-code exchange.');
+    assert.match(html,/error\.status===403/,name+' must treat a revoked/invalid display token distinctly.');
+    assert.match(html,/error\.status===401/,name+' must treat an expired/used setup code distinctly.');
+    assert.match(html,/stopPolling/,name+' must stop polling once unauthorized.');
+    assert.doesNotMatch(html,/[?&]code=|setupCode=/,name+' must never read a setup code from the URL.');
+  }
+  console.log('static file regression tests passed');
+}
 
-  const source=new Date(2026,8,8,2,30);
-  const shiftDate=new Date(source);
-  if(source.getHours()<5)shiftDate.setDate(shiftDate.getDate()-1);
-  assert.equal(shiftDate.toISOString().slice(0,10),'2026-09-07');
-  console.log('shared_schedule tests passed');
+(async()=>{
+  testSharedScheduleUrlBuilders();
+  await testSharedScheduleFetchHelpers();
+  await testAuthRegisterLoginMe();
+  await testAuthAdminLoginAndUserManagement();
+  await testAuthPeopleAndDisplayCredentials();
+  testStaticFilesHaveNoPublicFallback();
+  console.log('all tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

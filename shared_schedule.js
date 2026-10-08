@@ -1,8 +1,4 @@
 (function(root){
-  const GIST_API_ORIGIN='https://api.github.com/gists/';
-  const SCHEDULE_FILE_NAME='live-schedule.json';
-  const GIST_ID_PATTERN=/^[0-9a-f]{20,64}$/i;
-
   function backendApiBaseUrl(value){
     const reference=String(value||'').trim();
     if(!reference)return '';
@@ -44,68 +40,59 @@
     return backendUrl(baseUrl,'/api/admin/safety-badges');
   }
 
-  function gistIdFromReference(value){
-    const reference=String(value||'').trim();
-    if(GIST_ID_PATTERN.test(reference))return reference;
-    try{
-      const url=new URL(reference);
-      const match=url.origin==='https://api.github.com'&&url.pathname.match(/^\/gists\/([0-9a-f]{20,64})\/?$/i);
-      return match?match[1]:'';
-    }catch(error){
-      return '';
-    }
+  function backendRegisterUrl(baseUrl){
+    return backendUrl(baseUrl,'/api/auth/register');
   }
 
-  function gistApiUrl(reference){
-    const id=gistIdFromReference(reference);
-    if(!id)throw Error('The shared schedule reference must be a GitHub Gist ID or GitHub Gist API URL.');
-    return GIST_API_ORIGIN+id;
+  function backendUserLoginUrl(baseUrl){
+    return backendUrl(baseUrl,'/api/auth/login');
   }
 
-  function scheduleFile(gist){
-    if(!gist||typeof gist!=='object'||!gist.files||typeof gist.files!=='object')throw Error('GitHub returned an invalid Gist response.');
-    const preferred=gist.files[SCHEDULE_FILE_NAME]||gist.files['schedule.json'];
-    if(preferred&&typeof preferred==='object')return preferred;
-    const jsonFiles=Object.entries(gist.files).filter(([name,file])=>name.toLowerCase().endsWith('.json')&&file&&typeof file==='object');
-    if(jsonFiles.length===1)return jsonFiles[0][1];
-    throw Error('The shared Gist does not contain '+SCHEDULE_FILE_NAME+'.');
+  function backendMeUrl(baseUrl){
+    return backendUrl(baseUrl,'/api/auth/me');
   }
 
-  function rawFileUrl(file){
-    const url=new URL(String(file.raw_url||''));
-    if(url.protocol!=='https:'||!/(^|\.)githubusercontent\.com$/i.test(url.hostname))throw Error('The shared Gist returned an unsafe schedule file URL.');
-    return url.href;
+  function backendAdminUsersUrl(baseUrl){
+    return backendUrl(baseUrl,'/api/admin/users');
+  }
+
+  function backendAdminUserUrl(baseUrl,id){
+    return backendUrl(baseUrl,'/api/admin/users/'+encodeURIComponent(id));
+  }
+
+  function backendPersonUrl(baseUrl,name){
+    return backendUrl(baseUrl,'/api/people/'+encodeURIComponent(name));
+  }
+
+  function backendAdminDisplayCredentialsUrl(baseUrl){
+    return backendUrl(baseUrl,'/api/admin/display-credentials');
+  }
+
+  function backendAdminDisplayCredentialUrl(baseUrl,id){
+    return backendUrl(baseUrl,'/api/admin/display-credentials/'+encodeURIComponent(id));
+  }
+
+  function backendDisplayCredentialExchangeUrl(baseUrl){
+    return backendUrl(baseUrl,'/api/display-credentials/exchange');
   }
 
   async function responseJson(response,label){
-    if(!response||!response.ok)throw Error(label+' (HTTP '+(response&&response.status||'unknown')+').');
+    if(!response||!response.ok){
+      const error=Error(label+' (HTTP '+(response&&response.status||'unknown')+').');
+      error.status=response&&response.status||0;
+      throw error;
+    }
     return response.json();
   }
 
-  async function responseText(response,label){
-    if(!response||!response.ok)throw Error(label+' (HTTP '+(response&&response.status||'unknown')+').');
-    return response.text();
+  function authHeaders(token){
+    return token?{Accept:'application/json',Authorization:'Bearer '+token}:{Accept:'application/json'};
   }
 
-  async function fetchGistSchedule(reference,fetchFn){
+  async function fetchBackendSchedule(baseUrl,fetchFn,token){
     const request=fetchFn||root.fetch;
     if(typeof request!=='function')throw Error('This browser cannot request the shared schedule.');
-    const gist=await responseJson(await request(gistApiUrl(reference),{headers:{Accept:'application/vnd.github+json'},cache:'no-store'}),'GitHub could not load the shared schedule'),file=scheduleFile(gist);
-    let content=file.content;
-    if(file.truncated||typeof content!=='string')content=await responseText(await request(rawFileUrl(file),{cache:'no-store'}),'GitHub could not load the shared schedule file');
-    try{
-      const rows=JSON.parse(content);
-      if(!Array.isArray(rows))throw Error('not an array');
-      return rows;
-    }catch(error){
-      throw Error('The shared Gist schedule file is not valid JSON shift data.');
-    }
-  }
-
-  async function fetchBackendSchedule(baseUrl,fetchFn){
-    const request=fetchFn||root.fetch;
-    if(typeof request!=='function')throw Error('This browser cannot request the shared schedule.');
-    const payload=await responseJson(await request(backendScheduleUrl(baseUrl),{headers:{Accept:'application/json'},cache:'no-store'}),'The schedule backend could not load the shared schedule');
+    const payload=await responseJson(await request(backendScheduleUrl(baseUrl),{headers:authHeaders(token),cache:'no-store'}),'The schedule backend could not load the shared schedule');
     if(!payload||typeof payload!=='object'||!Array.isArray(payload.rows))throw Error('The schedule backend returned an invalid schedule response.');
     return payload.rows;
   }
@@ -138,10 +125,10 @@
     ].filter(([property])=>normalised[property].some(safetyName=>safetyNameKeys(safetyName).some(key=>keys.has(key)))).map(([,className,label,symbol])=>({className,label,symbol}));
   }
 
-  async function fetchBackendSafetyBadges(baseUrl,fetchFn){
+  async function fetchBackendSafetyBadges(baseUrl,fetchFn,token){
     const request=fetchFn||root.fetch;
     if(typeof request!=='function')throw Error('This browser cannot request the shared safety badges.');
-    const payload=await responseJson(await request(backendSafetyBadgesUrl(baseUrl),{headers:{Accept:'application/json'},cache:'no-store'}),'The schedule backend could not load the shared safety badges');
+    const payload=await responseJson(await request(backendSafetyBadgesUrl(baseUrl),{headers:authHeaders(token),cache:'no-store'}),'The schedule backend could not load the shared safety badges');
     if(!payload||typeof payload!=='object'||!payload.badges)throw Error('The schedule backend returned an invalid safety badge response.');
     return normaliseSafetyBadges(payload.badges);
   }
@@ -152,8 +139,6 @@
     (settings.roles||[]).forEach(role=>query.append('role',role));
     if(settings.api)query.set('api',backendApiBaseUrl(settings.api));
     if(settings.api&&!query.get('api'))throw Error('The saved backend API base URL is invalid.');
-    if(settings.gist)query.set('gist',gistIdFromReference(settings.gist));
-    if(settings.gist&&!query.get('gist'))throw Error('The saved shared schedule reference is invalid.');
     return path+'?'+query.toString();
   }
 
@@ -164,5 +149,5 @@
     return dashboardUrl.origin+dashboardUrl.pathname+'?'+query.toString();
   }
 
-  root.SharedSchedule={GIST_API_ORIGIN,SCHEDULE_FILE_NAME,backendApiBaseUrl,backendScheduleUrl,backendLoginUrl,backendAdminScheduleUrl,backendSafetyBadgesUrl,backendAdminSafetyBadgesUrl,gistIdFromReference,gistApiUrl,fetchBackendSchedule,fetchBackendSafetyBadges,fetchGistSchedule,normaliseSafetyBadges,safetyBadgesFor,cardViewUrl,dashboardShareUrl};
+  root.SharedSchedule={backendApiBaseUrl,backendScheduleUrl,backendLoginUrl,backendAdminScheduleUrl,backendSafetyBadgesUrl,backendAdminSafetyBadgesUrl,backendRegisterUrl,backendUserLoginUrl,backendMeUrl,backendAdminUsersUrl,backendAdminUserUrl,backendPersonUrl,backendAdminDisplayCredentialsUrl,backendAdminDisplayCredentialUrl,backendDisplayCredentialExchangeUrl,fetchBackendSchedule,fetchBackendSafetyBadges,normaliseSafetyBadges,safetyBadgesFor,cardViewUrl,dashboardShareUrl};
 })(typeof window!=='undefined'?window:globalThis);
